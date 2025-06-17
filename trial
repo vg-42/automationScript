@@ -1,0 +1,82 @@
+import java.io.ByteArrayOutputStream;
+import java.io.FileInputStream;
+import java.io.InputStreamReader;
+import java.io.BufferedReader;
+import java.math.BigInteger;
+import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.Signature;
+import java.security.cert.X509Certificate;
+import java.util.Base64;
+import java.util.Enumeration;
+
+import sun.security.pkcs.ContentInfo;
+import sun.security.pkcs.PKCS7;
+import sun.security.pkcs.SignerInfo;
+import sun.security.util.DerOutputStream;
+import sun.security.util.DerValue;
+import sun.security.x509.AlgorithmId;
+import sun.security.x509.X500Name;
+
+public class GenPKCS {
+
+    static final String STORENAME = "c:/fileName.p12"; // Your actual P12 file path
+    static final String STOREPASS = "password";        // Your actual password
+
+    public static void main(String[] args) throws Exception {
+
+        // Ask user to input the string to sign
+        System.out.print("Enter data to sign: ");
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+        String inputData = reader.readLine();
+        byte[] dataToSign = inputData.getBytes("UTF-8");
+
+        // Load P12 KeyStore
+        KeyStore clientStore = KeyStore.getInstance("PKCS12");
+        clientStore.load(new FileInputStream(STORENAME), STOREPASS.toCharArray());
+
+        // Get key entry alias
+        Enumeration<String> aliases = clientStore.aliases();
+        String alias = "";
+        while (aliases.hasMoreElements()) {
+            String current = aliases.nextElement();
+            if (clientStore.isKeyEntry(current)) {
+                alias = current;
+                break;
+            }
+        }
+
+        X509Certificate cert = (X509Certificate) clientStore.getCertificate(alias);
+        PrivateKey privateKey = (PrivateKey) clientStore.getKey(alias, STOREPASS.toCharArray());
+
+        // Sign data using MD5 with RSA
+        Signature signature = Signature.getInstance("MD5withRSA");
+        signature.initSign(privateKey);
+        signature.update(dataToSign);
+        byte[] signedData = signature.sign();
+
+        // Prepare PKCS7 structures
+        X500Name xName = X500Name.asX500Name(cert.getSubjectX500Principal());
+        BigInteger serial = cert.getSerialNumber();
+        AlgorithmId digestAlgorithmId = new AlgorithmId(AlgorithmId.MD5_oid);
+        AlgorithmId signAlgorithmId = new AlgorithmId(AlgorithmId.RSAEncryption_oid);
+
+        SignerInfo signerInfo = new SignerInfo(xName, serial, digestAlgorithmId, signAlgorithmId, signedData);
+        ContentInfo contentInfo = new ContentInfo(ContentInfo.DATA_OID, new DerValue(DerValue.tag_OctetString, dataToSign));
+
+        PKCS7 pkcs7 = new PKCS7(new AlgorithmId[]{digestAlgorithmId}, contentInfo,
+                new java.security.cert.X509Certificate[]{cert}, new SignerInfo[]{signerInfo});
+
+        ByteArrayOutputStream out = new DerOutputStream();
+        pkcs7.encodeSignedData(out);
+        byte[] pkcs7Bytes = out.toByteArray();
+
+        // Encode to Base64 with 64-byte line breaks
+        String base64 = Base64.getMimeEncoder(64, "\n".getBytes()).encodeToString(pkcs7Bytes);
+
+        // Print in PEM format
+        System.out.println("-----BEGIN PKCS7-----");
+        System.out.println(base64);
+        System.out.println("-----END PKCS7-----");
+    }
+}
