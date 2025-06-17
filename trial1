@@ -1,0 +1,83 @@
+import java.io.*;
+import java.security.*;
+import java.security.cert.*;
+import java.util.*;
+
+import org.bouncycastle.cms.*;
+import org.bouncycastle.util.Store;
+import org.bouncycastle.cert.jcajce.JcaCertStore;
+import org.bouncycastle.operator.jcajce.*;
+import org.bouncycastle.util.encoders.Base64;
+
+public class BouncyPKCS7Generator {
+
+    private static final String P12_PATH = "c:/fileName.p12"; // <-- Your .p12 file path
+    private static final String P12_PASSWORD = "password";     // <-- Your .p12 password
+
+    public static void main(String[] args) throws Exception {
+
+        // 1. Read user input
+        System.out.print("Enter data to sign: ");
+        BufferedReader reader = new BufferedReader(new InputStreamReader(System.in));
+        String input = reader.readLine();
+        byte[] dataToSign = input.getBytes("UTF-8");
+
+        // 2. Load PKCS#12 keystore
+        KeyStore keystore = KeyStore.getInstance("PKCS12");
+        keystore.load(new FileInputStream(P12_PATH), P12_PASSWORD.toCharArray());
+
+        String alias = null;
+        Enumeration<String> aliases = keystore.aliases();
+        while (aliases.hasMoreElements()) {
+            String current = aliases.nextElement();
+            if (keystore.isKeyEntry(current)) {
+                alias = current;
+                break;
+            }
+        }
+
+        if (alias == null) throw new Exception("No private key found in keystore.");
+
+        PrivateKey privateKey = (PrivateKey) keystore.getKey(alias, P12_PASSWORD.toCharArray());
+        Certificate[] certChain = keystore.getCertificateChain(alias);
+        List<Certificate> certList = Arrays.asList(certChain);
+
+        // 3. Create CMS SignedData (PKCS#7)
+        CMSTypedData msg = new CMSProcessableByteArray(dataToSign);
+        Store certs = new JcaCertStore(certList);
+
+        JcaContentSignerBuilder signerBuilder = new JcaContentSignerBuilder("MD5withRSA");
+        signerBuilder.setProvider("SunRsaSign"); // or BouncyCastleProvider if needed
+
+        SignerInfoGenerator signerInfoGen = new JcaSignerInfoGeneratorBuilder(
+            new JcaDigestCalculatorProviderBuilder().build()
+        ).build(signerBuilder.build(privateKey), (X509Certificate) certChain[0]);
+
+        CMSSignedDataGenerator gen = new CMSSignedDataGenerator();
+        gen.addSignerInfoGenerator(signerInfoGen);
+        gen.addCertificates(certs);
+
+        CMSSignedData signedData = gen.generate(msg, true); // true = embed content
+
+        // 4. Encode as PEM with 64-character lines
+        byte[] encoded = signedData.getEncoded();
+        String base64 = encodeToPEM(encoded, "PKCS7");
+
+        // 5. Output to console
+        System.out.println(base64);
+    }
+
+    private static String encodeToPEM(byte[] binary, String type) {
+        StringBuilder pem = new StringBuilder();
+        pem.append("-----BEGIN ").append(type).append("-----\n");
+
+        String b64 = new String(Base64.encode(binary));
+        for (int i = 0; i < b64.length(); i += 64) {
+            int end = Math.min(i + 64, b64.length());
+            pem.append(b64, i, end).append("\n");
+        }
+
+        pem.append("-----END ").append(type).append("-----");
+        return pem.toString();
+    }
+}
