@@ -1,0 +1,5 @@
+@echo off
+javac --add-exports=java.base/sun.security.x509=ALL-UNNAMED --add-exports=java.base/sun.security.pkcs=ALL-UNNAMED --add-exports=java.base/sun.security.util=ALL-UNNAMED sunJavaTesting.java
+jar cfm sunJavaTesting.jar manifestSunJavaTesting.txt sunJavaTesting.class
+java --add-exports=java.base/sun.security.x509=ALL-UNNAMED --add-exports=java.base/sun.security.pkcs=ALL-UNNAMED --add-exports=java.base/sun.security.util=ALL-UNNAMED -jar sunJavaTesting.jar
+pause
